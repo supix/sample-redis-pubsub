@@ -7,6 +7,7 @@ namespace RedisTrial
     class Program
     {
         static void Main(string[] args)
+
         {
             //var db = redis.GetDatabase();
             //string value = "abcdefg";
@@ -19,10 +20,12 @@ namespace RedisTrial
             var defaultCs = "localhost:8080";
             var prompt = "Type a message: ";
 
+
             Console.Write($"Insert connection string [{defaultCs}]: ");
             var cs = Console.ReadLine();
             if (string.IsNullOrWhiteSpace(cs))
                 cs = defaultCs;
+
             Console.WriteLine("Connecting...");
             var redis = ConnectionMultiplexer.Connect(cs);
             Console.WriteLine("Connected to " + cs);
