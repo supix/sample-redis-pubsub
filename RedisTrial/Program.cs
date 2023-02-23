@@ -18,32 +18,53 @@ namespace RedisTrial
 
         static void runLoadTest()
         {
-            //var db = redis.GetDatabase();
-            //string value = "abcdefg";
-            //db.StringSet("mykey", value);
-
-            //value = db.StringGet("mykey");
-            //Console.WriteLine(value); // writes: "abcdefg"
-
             var redis = getConnectionMultiplexer();
 
             var db = redis.GetDatabase();
-            var itemsToSave = 500000;
-            var itemsToLoad = 1000;
-            var entries = Enumerable
-                .Range(0, itemsToSave)
-                .Select(i => new KeyValuePair<RedisKey, RedisValue>(i.ToString(), Guid.NewGuid().ToString()))
-                .ToArray();
+            var defaultItemsToSave = 100000;
+            var defaultBatchSize = 10000;
+            var defaultItemsToLoad = 100;
+            var defaultValueStringLength = 100;
+
+            Console.Write($"Items to save [{defaultItemsToSave}]: ");
+            var input = Console.ReadLine();
+            var itemsToSave = string.IsNullOrWhiteSpace(input) ? defaultItemsToSave : int.Parse(input);
+            Console.Write($"Batch size [{defaultBatchSize}]: ");
+            input = Console.ReadLine();
+            var batchSize = string.IsNullOrWhiteSpace(input) ? defaultBatchSize : int.Parse(input);
+            Console.Write($"Items to load [{defaultItemsToLoad}]: ");
+            input = Console.ReadLine();
+            var itemsToLoad = string.IsNullOrWhiteSpace(input) ? defaultItemsToLoad : int.Parse(input);
+            if (itemsToLoad > itemsToSave)
+                throw new InvalidOperationException("items to load must be less than items to save");
+            Console.Write($"Values string length [{defaultValueStringLength}]: ");
+            input = Console.ReadLine();
+            var valuesStringLength = string.IsNullOrWhiteSpace(input) ? defaultItemsToLoad : int.Parse(input);
+
+            var rnd = new Random();
+            var values = NextStrings(rnd, (valuesStringLength, valuesStringLength), itemsToSave).ToArray();
+            var dict = new Dictionary<string, string>();
+            int i = 0;
+            foreach (var value in values)
+                dict[(i++.ToString())] = value;
+            var entries = dict.Select(kvp => new KeyValuePair<RedisKey, RedisValue>(kvp.Key, kvp.Value)).ToArray();
             Console.WriteLine($"Saving {itemsToSave} elements...");
             var sw = new Stopwatch();
             sw.Start();
-            db.StringSet(entries);
+            int batch = 0;
+            var batchValues = entries.Skip(batch++ * batchSize).Take(batchSize).ToArray();
+            while (batchValues.Length > 0)
+            {
+                db.StringSet(batchValues);
+                Console.Write('.');
+                batchValues = entries.Skip(batch++ * batchSize).Take(batchSize).ToArray();
+            }            
             sw.Stop();
+            Console.WriteLine();
             Console.WriteLine($"Saved in {sw.ElapsedMilliseconds} ms.");
-            Thread.Sleep(3000);
 
             var keys = new List<RedisKey>();
-            var rnd = new Random();
+
             while (keys.Count() < itemsToLoad)
             {
                 var key = rnd.Next(itemsToSave).ToString();
@@ -53,20 +74,20 @@ namespace RedisTrial
             Console.WriteLine($"Loading {itemsToLoad} elements...");
             sw.Reset();
             sw.Start();
-            var values = db.StringGet(keys.ToArray());
+            var loadedValues = db.StringGet(keys.ToArray());
             sw.Stop();
             Console.WriteLine($"Loaded in {sw.ElapsedMilliseconds} ms.");
 
-            //for (int i = 0; i < keys.Count(); i++)
-            //{
-            //    var expectedValue = entries.Single(kv => kv.Key == keys[i]).Value;
-            //    var valueGot = values[i];
-                
-            //    if (expectedValue != valueGot)
-            //        Console.WriteLine($"Error! Expected: {expectedValue}. Got: {valueGot}");
-            //    //else
-            //    //    Console.WriteLine($"Ok! {i.ToString()}: {expectedValue}");
-            //}
+            for (i = 0; i < keys.Count(); i++)
+            {
+                var expectedValue = dict[keys[i]];
+                var valueGot = loadedValues[i];
+
+                if (expectedValue != valueGot)
+                    Console.WriteLine($"Error! Expected: {expectedValue}. Got: {valueGot}");
+                //else
+                //    Console.WriteLine($"Ok! {i.ToString()}: {expectedValue}");
+            }
 
             sw.Reset();
             sw.Start();
@@ -110,6 +131,39 @@ namespace RedisTrial
                 Console.Write(prompt);
                 var s = guid + "|" + Console.ReadLine();
                 sub.Publish("messages", s);
+            }
+        }
+
+        private static IEnumerable<string> NextStrings(
+            Random rnd,
+            (int Min, int Max) length,
+            int count)
+        {
+            const string allowedChars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz#@$^*()";
+            ISet<string> usedRandomStrings = new HashSet<string>();
+            (int min, int max) = length;
+            char[] chars = new char[max];
+            int setLength = allowedChars.Length;
+
+            while (count-- > 0)
+            {
+                int stringLength = rnd.Next(min, max + 1);
+
+                for (int i = 0; i < stringLength; ++i)
+                {
+                    chars[i] = allowedChars[rnd.Next(setLength)];
+                }
+
+                string randomString = new string(chars, 0, stringLength);
+
+                if (usedRandomStrings.Add(randomString))
+                {
+                    yield return randomString;
+                }
+                else
+                {
+                    count++;
+                }
             }
         }
     }
